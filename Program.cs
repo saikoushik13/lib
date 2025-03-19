@@ -11,8 +11,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Service;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Service.Interface;
 using System.Text;
+using Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,11 +23,16 @@ var builder = WebApplication.CreateBuilder(args);
 var configuration = builder.Configuration;
 
 // ✅ Configure MySQL Database Connection
+//builder.Services.AddDbContext<AppDbContext>(options =>
+//    options.UseMySql(
+//        builder.Configuration.GetConnectionString("DefaultConnection"),
+//        ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection"))
+//    ));
+
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection"))
-    ));
+    options.UseNpgsql(GetPostgresConnectionString()));
+
 
 // ✅ Configure JWT Authentication
 var key = Encoding.UTF8.GetBytes(configuration["Jwt:Key"]);
@@ -89,10 +97,31 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.Services.AddValidatorsFromAssemblyContaining<UserRegisterValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<UserLoginValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<BookValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<ReviewCreateDtoValidator>();
 // ✅ Add Controllers
 builder.Services.AddControllers();
 
 var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    var context = services.GetRequiredService<AppDbContext>();
+    context.Database.Migrate();
+}
+
+static string GetPostgresConnectionString()
+
+{
+    var host = Environment.GetEnvironmentVariable("DB_HOST");
+    var database = Environment.GetEnvironmentVariable("DB_NAME");
+    var username = Environment.GetEnvironmentVariable("DB_USER");
+    var password = Environment.GetEnvironmentVariable("DB_PASSWORD");
+    var port = Environment.GetEnvironmentVariable("DB_PORT");
+    return $"Host={host};Port={port};Database={database};Username={username};Password={password}";
+}
 
 // ✅ Ensure Middleware Order is Correct
 if (app.Environment.IsDevelopment())

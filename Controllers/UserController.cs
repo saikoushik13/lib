@@ -5,6 +5,8 @@ using Service.Interface;
 using System;
 using System.Threading.Tasks;
 using Constants;
+using FluentValidation;
+using System.Security.Claims;
 
 namespace Controllers
 {
@@ -14,11 +16,16 @@ namespace Controllers
     {
         private readonly IAuthService _authService;
         private readonly IUserService _userService;
+        private readonly IValidator<UserRegisterDto> _registerValidator;
+        private readonly IValidator<UserLoginDto> _loginValidator;
 
-        public UserController(IAuthService authService, IUserService userService)
+
+        public UserController(IAuthService authService, IUserService userService, IValidator<UserRegisterDto> registerValidator, IValidator<UserLoginDto> loginValidator)
         {
             _authService = authService;
             _userService = userService;
+            _registerValidator = registerValidator;
+            _loginValidator = loginValidator;
         }
 
         /// <summary>
@@ -27,15 +34,13 @@ namespace Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] UserRegisterDto userDto)
         {
-            try
+            var validationResult = _registerValidator.Validate(userDto);
+            if (!validationResult.IsValid)
             {
-                var response = await _authService.RegisterAsync(userDto);
-                return Ok(response);
+                return BadRequest(validationResult.Errors.Select(e => e.ErrorMessage));
             }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+            var response = await _authService.RegisterAsync(userDto);
+            return Ok(response);
         }
 
         /// <summary>
@@ -44,6 +49,13 @@ namespace Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] UserLoginDto loginDto)
         {
+            var validationResult = _loginValidator.Validate(loginDto);
+
+            if (!validationResult.IsValid)
+            {
+                return BadRequest(validationResult.Errors.Select(e => e.ErrorMessage));
+            }
+
             try
             {
                 var token = await _authService.LoginAsync(loginDto);
@@ -76,13 +88,14 @@ namespace Controllers
         /// <summary>
         /// Change user role. (Admin Only)
         /// </summary>
-        [HttpPut("change-role/{userId}")]
+        [HttpPut("change-role")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> ChangeUserRole(int userId, [FromBody] RoleEnum newRole)
+        public async Task<IActionResult> ChangeUserRole([FromBody] ChangeUserRoleDto changeRoleDto)
         {
             try
             {
-                await _userService.ChangeUserRoleAsync(userId, newRole);
+                int adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+                await _userService.ChangeUserRoleAsync(adminId, changeRoleDto);
                 return Ok(new { message = "User role updated successfully." });
             }
             catch (Exception ex)
